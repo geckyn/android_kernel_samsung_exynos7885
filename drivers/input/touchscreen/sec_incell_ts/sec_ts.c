@@ -1654,6 +1654,7 @@ static int sec_ts_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__, client->irq);
 
+	ts->plat_data->irq_type |= IRQF_PERF_CRITICAL;
 	ret = request_threaded_irq(client->irq, NULL, sec_ts_irq_thread,
 			ts->plat_data->irq_type, SEC_TS_I2C_NAME, ts);
 	if (ret < 0) {

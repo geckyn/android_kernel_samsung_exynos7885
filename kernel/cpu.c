@@ -24,8 +24,8 @@
 #include <linux/irq.h>
 #include <linux/cpuidle.h>
 #include <trace/events/power.h>
-
 #include <trace/events/sched.h>
+#include <linux/interrupt.h>
 
 #include "smpboot.h"
 

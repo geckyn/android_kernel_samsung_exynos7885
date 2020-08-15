@@ -5199,7 +5199,7 @@ tracing_entries_write(struct file *filp, const char __user *ubuf,
 		return ret;
 
 	/* must have at least 1 entry */
-	if (!val)
+	if (!val || val > 32768)
 		return -EINVAL;
 
 	/* value is in KB */

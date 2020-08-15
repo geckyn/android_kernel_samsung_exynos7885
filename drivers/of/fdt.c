@@ -29,6 +29,9 @@
 #include <asm/setup.h>  /* for COMMAND_LINE_SIZE */
 #include <asm/page.h>
 
+#ifdef CONFIG_UH
+#include <linux/uh.h>
+#endif
 /*
  * of_fdt_limit_memory - limit the number of regions in the /memory node
  * @limit: maximum entries
@@ -594,6 +597,7 @@ void __init early_init_fdt_scan_reserved_mem(void)
 		if (!size)
 			break;
 		early_init_dt_reserve_memory_arch(base, size, 0);
+		record_memsize_reserved(NULL, base, size, 0, 0);
 	}
 
 	of_scan_flat_dt(__fdt_scan_reserved_mem, NULL);
@@ -949,6 +953,57 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 	return 0;
 }
 
+#ifdef CONFIG_UH
+int __init init_dt_scan_uh_reserved(unsigned long node, const char *uname,
+				     int depth, void *data)
+{
+	const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
+	const __be32 *reg, *endp;
+	int l;
+
+	/* We are scanning "memory" nodes only */
+	if (type == NULL) {
+		/*
+		 * The longtrail doesn't have a device_type on the
+		 * /memory node, so look for the node called /memory@0.
+		 */
+		if (!IS_ENABLED(CONFIG_PPC32) || depth != 1 || strcmp(uname, "memory@0") != 0)
+			return 0;
+	} else if (strcmp(type, "memory") != 0)
+		return 0;
+
+	reg = of_get_flat_dt_prop(node, "linux,usable-memory", &l);
+	if (reg == NULL)
+		reg = of_get_flat_dt_prop(node, "reg", &l);
+	if (reg == NULL)
+		return 0;
+
+	endp = reg + (l / sizeof(__be32));
+
+	while ((endp - reg) >= (dt_root_addr_cells + dt_root_size_cells)) {
+		u64 base, size;
+
+		base = dt_mem_next_cell(dt_root_addr_cells, &reg);
+		size = dt_mem_next_cell(dt_root_size_cells, &reg);
+
+		if (size == 0)
+			continue;
+		uh_call(UH_APP_INIT, 2, (u64)base, (u64)size, 0, 0);
+	}
+
+	return 0;
+}
+/**
+ * early_init_dt_scan_memory - Look for an parse memory nodes
+ */
+void __init init_dt_scan_uh_nodes(void)
+{
+	/* Setup memory, calling early_init_dt_add_memory_arch */
+	of_scan_flat_dt(init_dt_scan_uh_reserved, NULL);
+}
+
+#endif
+
 /*
  * Convert configs to something easy to use in C code
  */
@@ -1027,6 +1082,7 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 void __init __weak early_init_dt_add_memory_arch(u64 base, u64 size)
 {
 	const u64 phys_offset = MIN_MEMBLOCK_ADDR;
+	u64 hole_s;
 
 	if (!PAGE_ALIGNED(base)) {
 		if (size < PAGE_SIZE - (base & ~PAGE_MASK)) {
@@ -1063,6 +1119,12 @@ void __init __weak early_init_dt_add_memory_arch(u64 base, u64 size)
 		base = phys_offset;
 	}
 	memblock_add(base, size);
+	hole_s = base % SZ_256M;
+	if (hole_s)
+		record_memsize_reserved(NULL, base - hole_s, hole_s, 1, 0);
+	hole_s = round_up(base + size, SZ_256M) - (base + size);
+	if (hole_s)
+		record_memsize_reserved(NULL, base + size, hole_s, 1, 0);
 }
 
 int __init __weak early_init_dt_reserve_memory_arch(phys_addr_t base,

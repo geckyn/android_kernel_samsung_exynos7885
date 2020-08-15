@@ -812,4 +812,21 @@ config INPUT_DRV2667_HAPTICS
 	  To compile this driver as a module, choose M here: the
 	  module will be called drv2667-haptics.
 
+config FLIP_COVER
+	tristate "Enable HALL"
+	default n
+	help
+	  Enable Hall Feature
+
+config HALL_EVENT_REVERSE
+	tristate "Adjusting the status value of HALL IC"
+	default y
+	depends on FLIP_COVER
+	depends on ANDROID_MAJOR_VERSION >= "q"
+	help
+	  Adjusting the status value of HALL IC.
+	  This was required from input FW.
+
+	  If unsure, say N.
+
 endif

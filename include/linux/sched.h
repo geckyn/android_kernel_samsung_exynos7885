@@ -177,6 +177,11 @@ extern void get_iowait_load(unsigned long *nr_waiters, unsigned long *load);
 #ifdef CONFIG_CPU_QUIET
 extern u64 nr_running_integral(unsigned int cpu);
 #endif
+#ifdef CONFIG_SCHED_HMP
+extern int register_hmp_task_migration_notifier(struct notifier_block *nb);
+#define HMP_UP_MIGRATION       0
+#define HMP_DOWN_MIGRATION     1
+#endif
 
 extern void calc_global_load(unsigned long ticks);
 
@@ -325,7 +330,7 @@ enum task_event {
 	TASK_WAKE       = 2,
 	TASK_MIGRATE    = 3,
 	TASK_UPDATE     = 4,
-	IRQ_UPDATE	= 5,
+	IRQ_UPDATE      = 5,
 };
 
 #include <linux/spinlock.h>
@@ -962,6 +967,12 @@ struct sched_capacity_reqs {
 };
 
 /*
+ * Increase resolution of cpu_power calculations
+ */
+#define SCHED_POWER_SHIFT	10
+#define SCHED_POWER_SCALE	(1L << SCHED_POWER_SHIFT)
+
+/*
  * Wake-queues are lists of tasks with a pending wakeup, whose
  * callers have already marked the task as woken internally,
  * and can thus carry on. A common use case is being able to
@@ -1017,7 +1028,7 @@ extern void wake_up_q(struct wake_q_head *head);
 #define SD_BALANCE_WAKE		0x0010  /* Balance on wakeup */
 #define SD_WAKE_AFFINE		0x0020	/* Wake task to waking CPU */
 #define SD_ASYM_CPUCAPACITY	0x0040  /* Groups have different max cpu capacities */
-#define SD_SHARE_CPUCAPACITY	0x0080	/* Domain members share cpu capacity */
+#define SD_SHARE_CPUCAPACITY	0x0080  /* Domain members share cpu capacity */
 #define SD_SHARE_POWERDOMAIN	0x0100	/* Domain members share power domain */
 #define SD_SHARE_PKG_RESOURCES	0x0200	/* Domain members share cpu pkg resources */
 #define SD_SERIALIZE		0x0400	/* Only a single load balancing instance */
@@ -1026,6 +1037,7 @@ extern void wake_up_q(struct wake_q_head *head);
 #define SD_OVERLAP		0x2000	/* sched_domains of this level overlap */
 #define SD_NUMA			0x4000	/* cross-node balancing */
 #define SD_SHARE_CAP_STATES	0x8000  /* Domain members share capacity state */
+#define SD_NO_LOAD_BALANCE	0x10000	/* flag for hmp scheduler */
 
 #ifdef CONFIG_SCHED_SMT
 static inline int cpu_smt_flags(void)
@@ -1209,7 +1221,6 @@ typedef const struct cpumask *(*sched_domain_mask_f)(int cpu);
 typedef int (*sched_domain_flags_f)(void);
 typedef
 const struct sched_group_energy * const(*sched_domain_energy_f)(int cpu);
-
 #define SDTL_OVERLAP	0x01
 
 struct sd_data {
@@ -1238,6 +1249,36 @@ extern void wake_up_if_idle(int cpu);
 #else
 # define SD_INIT_NAME(type)
 #endif
+
+#ifdef CONFIG_SCHED_HMP
+struct hmp_domain {
+	struct cpumask cpus;
+	struct cpumask possible_cpus;
+#ifdef CONFIG_SCHED_SKIP_CORE_SELECTION_MASK
+	struct cpumask cpumask_skip;
+#endif
+	struct list_head hmp_domains;
+};
+
+#define HMP_BOOSTING_ENABLE	1
+#define HMP_BOOSTING_DISABLE	0
+extern int set_hmp_boost(int enable);
+extern int set_hmp_semiboost(int enable);
+extern int set_hmp_boostpulse(int duration);
+extern int get_hmp_boost(void);
+extern int get_hmp_semiboost(void);
+extern int set_hmp_up_threshold(int value);
+extern int set_hmp_down_threshold(int value);
+extern int set_active_down_migration(int enable);
+extern int set_hmp_aggressive_up_migration(int enable);
+extern int set_hmp_aggressive_yield(int enable);
+#ifdef CONFIG_SCHED_HMP_SELECTIVE_BOOST_WITH_NITP
+extern int set_hmp_selective_boost(int enable);
+extern int get_hmp_selective_boost(void);
+#endif
+#else
+extern int set_hmp_boost(int enable);
+#endif /* CONFIG_SCHED_HMP */
 
 #else /* CONFIG_SMP */
 
@@ -1294,6 +1335,11 @@ struct sched_avg {
 	u64 last_update_time, load_sum;
 	u32 util_sum, period_contrib;
 	unsigned long load_avg, util_avg;
+#ifdef CONFIG_SCHED_HMP
+	u64 hmp_load_sum, hmp_load_avg;
+	u64 hmp_last_up_migration;
+	u64 hmp_last_down_migration;
+#endif
 };
 
 #ifdef CONFIG_SCHEDSTATS
@@ -1446,6 +1492,10 @@ struct sched_rt_entity {
 	/* rq "owned" by this entity/group: */
 	struct rt_rq		*my_q;
 #endif
+#ifdef CONFIG_SMP
+	/* Per entity load average tracking */
+	struct sched_avg	avg;
+#endif
 };
 
 struct sched_dl_entity {
@@ -1509,6 +1559,10 @@ union rcu_special {
 };
 struct rcu_node;
 
+#ifdef CONFIG_FIVE
+struct task_integrity;
+#endif
+
 enum perf_event_task_context {
 	perf_invalid_context = -1,
 	perf_hw_context = 0,
@@ -1553,7 +1607,7 @@ struct task_struct {
 	struct llist_node wake_entry;
 	int on_cpu;
 #ifdef CONFIG_THREAD_INFO_IN_TASK
-	unsigned int cpu;	/* current CPU */
+	unsigned int cpu;       /* current CPU */
 #endif
 	unsigned int wakee_flips;
 	unsigned long wakee_flip_decay_ts;
@@ -1568,16 +1622,9 @@ struct task_struct {
 	const struct sched_class *sched_class;
 	struct sched_entity se;
 	struct sched_rt_entity rt;
-#ifdef CONFIG_SCHED_WALT
-	struct ravg ravg;
-	/*
-	 * 'init_load_pct' represents the initial task load assigned to children
-	 * of this task
-	 */
-	u32 init_load_pct;
-	u64 last_sleep_ts;
-#endif
-
+#ifdef CONFIG_SCHED_USE_FLUID_RT
+	int victim_flag;
+#endif	
 #ifdef CONFIG_CGROUP_SCHED
 	struct task_group *sched_task_group;
 #endif
@@ -1702,6 +1749,7 @@ struct task_struct {
 
 	cputime_t utime, stime, utimescaled, stimescaled;
 	cputime_t gtime;
+	unsigned long long cpu_power;
 #ifdef CONFIG_CPU_FREQ_TIMES
 	u64 *time_in_state;
 	unsigned int max_state;
@@ -1956,8 +2004,8 @@ struct task_struct {
 	 * time slack values; these are used to round up poll() and
 	 * select() etc timeout values. These are in nanoseconds.
 	 */
-	u64 timer_slack_ns;
-	u64 default_timer_slack_ns;
+	unsigned long timer_slack_ns;
+	unsigned long default_timer_slack_ns;
 
 #ifdef CONFIG_KASAN
 	unsigned int kasan_depth;
@@ -2008,8 +2056,14 @@ struct task_struct {
 	unsigned int	sequential_io;
 	unsigned int	sequential_io_avg;
 #endif
+#ifdef CONFIG_SDP
+	unsigned int sensitive;
+#endif
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 	unsigned long	task_state_change;
+#endif
+#ifdef CONFIG_FIVE
+	struct task_integrity *integrity;
 #endif
 	int pagefault_disabled;
 /* CPU-specific state of this task */
@@ -2131,8 +2185,25 @@ static inline pid_t task_tgid_nr(struct task_struct *tsk)
 	return tsk->tgid;
 }
 
+static pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespace *ns);
 
 static inline int pid_alive(const struct task_struct *p);
+static inline pid_t task_ppid_nr_ns(const struct task_struct *tsk, struct pid_namespace *ns)
+{
+	pid_t pid = 0;
+
+	rcu_read_lock();
+	if (pid_alive(tsk))
+		pid = task_tgid_nr_ns(rcu_dereference(tsk->real_parent), ns);
+	rcu_read_unlock();
+
+	return pid;
+}
+
+static inline pid_t task_ppid_nr(const struct task_struct *tsk)
+{
+	return task_ppid_nr_ns(tsk, &init_pid_ns);
+}
 
 static inline pid_t task_pgrp_nr_ns(struct task_struct *tsk,
 					struct pid_namespace *ns)
@@ -2165,23 +2236,6 @@ static inline pid_t task_tgid_nr_ns(struct task_struct *tsk, struct pid_namespac
 static inline pid_t task_tgid_vnr(struct task_struct *tsk)
 {
 	return __task_pid_nr_ns(tsk, __PIDTYPE_TGID, NULL);
-}
-
-static inline pid_t task_ppid_nr_ns(const struct task_struct *tsk, struct pid_namespace *ns)
-{
-	pid_t pid = 0;
-
-	rcu_read_lock();
-	if (pid_alive(tsk))
-		pid = task_tgid_nr_ns(rcu_dereference(tsk->real_parent), ns);
-	rcu_read_unlock();
-
-	return pid;
-}
-
-static inline pid_t task_ppid_nr(const struct task_struct *tsk)
-{
-	return task_ppid_nr_ns(tsk, &init_pid_ns);
 }
 
 /* obsolete, do not use */
@@ -2222,7 +2276,12 @@ static inline int is_global_init(struct task_struct *tsk)
 extern struct pid *cad_pid;
 
 extern void free_task(struct task_struct *tsk);
+
+#ifdef CONFIG_TRACE_TASK_USAGE
+#define get_task_struct(tsk) do { BUG_ON(0 == atomic_read(&(tsk)->usage)); atomic_inc(&(tsk)->usage); } while(0)
+#else
 #define get_task_struct(tsk) do { atomic_inc(&(tsk)->usage); } while(0)
+#endif
 
 extern void __put_task_struct(struct task_struct *t);
 
@@ -2788,10 +2847,15 @@ extern struct mm_struct * mm_alloc(void);
 
 /* mmdrop drops the mm and the page tables */
 extern void __mmdrop(struct mm_struct *);
-static inline void mmdrop(struct mm_struct * mm)
+static inline void mmdrop(struct mm_struct *mm)
 {
 	if (unlikely(atomic_dec_and_test(&mm->mm_count)))
 		__mmdrop(mm);
+}
+
+static inline bool mmget_not_zero(struct mm_struct *mm)
+{
+	return atomic_inc_not_zero(&mm->mm_users);
 }
 
 /* mmput gets rid of the mappings and all user-space */
@@ -3465,19 +3529,21 @@ static inline unsigned long rlimit_max(unsigned int limit)
 	return task_rlimit_max(current, limit);
 }
 
-#define SCHED_CPUFREQ_RT        (1U << 0)
-#define SCHED_CPUFREQ_DL        (1U << 1)
-#define SCHED_CPUFREQ_IOWAIT    (1U << 2)
-
 #ifdef CONFIG_CPU_FREQ
 struct update_util_data {
-	void (*func)(struct update_util_data *data, u64 time, unsigned int flags);
+	void (*func)(struct update_util_data *data,
+		     u64 time, unsigned long util, unsigned long max);
 };
 
 void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
-                       void (*func)(struct update_util_data *data, u64 time,
-                                    unsigned int flags));
+			void (*func)(struct update_util_data *data, u64 time,
+				     unsigned long util, unsigned long max));
 void cpufreq_remove_update_util_hook(int cpu);
 #endif /* CONFIG_CPU_FREQ */
 
+#ifdef CONFIG_SCHED_HP_EVENT
+void hp_event_update(struct sched_entity *se);
+#else
+static inline void hp_event_update(struct sched_entity *se) { }
+#endif
 #endif

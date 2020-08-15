@@ -89,7 +89,11 @@ _head:
 	le64sym	_kernel_size_le			// Effective size of kernel image, little-endian
 	le64sym	_kernel_flags_le		// Informative flags, little-endian
 	.quad	0				// reserved
-	.quad	0				// reserved
+#ifdef CONFIG_PROCA
+	le64sym	_proca_conf_offset		// memory info for proca ta
+#else
+	.quad	0xecefecef			// Magic number for proca ta
+#endif
 	.quad	0				// reserved
 	.byte	0x41				// Magic number, "ARM\x64"
 	.byte	0x52
@@ -210,10 +214,17 @@ section_table:
 #endif
 
 ENTRY(stext)
+#ifdef CONFIG_RELOCATABLE_KERNEL
+	mov	x22, x1				// x1=PHYS_OFFSET
+	mov	x19, x2				// x2=real TEXT_OFFSET
+	adr	x21, __boot_kernel_offset
+	stp	x1, x2, [x21]
+#endif
 	bl	preserve_boot_args
 	bl	el2_setup			// Drop to EL1, w20=cpu_boot_mode
 	adrp	x24, __PHYS_OFFSET
 	and	x23, x24, MIN_KIMG_ALIGN - 1	// KASLR offset, defaults to 0
+
 	bl	set_cpu_boot_mode_flag
 	bl	__create_page_tables		// x25=TTBR0, x26=TTBR1
 	/*
@@ -222,13 +233,16 @@ ENTRY(stext)
 	 * On return, the CPU will be ready for the MMU to be turned on and
 	 * the TCR will have been set.
 	 */
-	ldr	x27, 0f				// address to jump to after
-						// MMU has been enabled
+
+	adr_l	x27, __mmap_switched		// address to jump to after
+	sub	x27, x27, x24			// MMU has been enabled
+	mov_q	x12, KIMAGE_VADDR
+	add	x27, x27, x12			// convert to VA
+	add	x27, x27, x23
+	
 	adr_l	lr, __enable_mmu		// return (PIC) address
 	b	__cpu_setup			// initialise processor
 ENDPROC(stext)
-	.align	3
-0:	.quad	__mmap_switched - (_head - TEXT_OFFSET) + KIMAGE_VADDR
 
 /*
  * Preserve the arguments passed by the bootloader in x0 .. x3
@@ -438,7 +452,7 @@ __mmap_switched:
 	bl	__pi_memset
 	dsb	ishst				// Make zero page visible to PTW
 
-#ifdef CONFIG_RELOCATABLE
+#if defined (CONFIG_RELOCATABLE) || defined(CONFIG_RELOCATABLE_KERNEL)
 
 	/*
 	 * Iterate over each entry in the relocation table, and apply the
@@ -453,22 +467,9 @@ __mmap_switched:
 	ldp	x11, x12, [x9], #24
 	ldr	x13, [x9, #-8]
 	cmp	w12, #R_AARCH64_RELATIVE
-	b.ne	1f
+	b.ne	0b
 	add	x13, x13, x23			// relocate
 	str	x13, [x11, x23]
-	b	0b
-
-1:	cmp	w12, #R_AARCH64_ABS64
-	b.ne	0b
-	add	x12, x12, x12, lsl #1		// symtab offset: 24x top word
-	add	x12, x8, x12, lsr #(32 - 3)	// ... shifted into bottom word
-	ldrsh	w14, [x12, #6]			// Elf64_Sym::st_shndx
-	ldr	x15, [x12, #8]			// Elf64_Sym::st_value
-	cmp	w14, #-0xf			// SHN_ABS (0xfff1) ?
-	add	x14, x15, x23			// relocate
-	csel	x15, x14, x15, ne
-	add	x15, x13, x15
-	str	x15, [x11, x23]
 	b	0b
 
 2:	adr_l	x8, kimage_vaddr		// make relocated kimage_vaddr
@@ -637,6 +638,15 @@ ENTRY(set_cpu_boot_mode_flag)
 	dc	ivac, x1			// Invalidate potentially stale cache line
 	ret
 ENDPROC(set_cpu_boot_mode_flag)
+
+#ifdef CONFIG_RELOCATABLE_KERNEL
+	.pushsection	.text
+ENTRY(__boot_kernel_offset)
+	.quad	0     	//Kernel Physical Address
+	.quad	0	//Kernel TEXT_OFFSET
+	.quad 	TEXT_OFFSET
+	.popsection
+#endif
 
 /*
  * We need to find out the CPU boot mode long after boot, so we need to

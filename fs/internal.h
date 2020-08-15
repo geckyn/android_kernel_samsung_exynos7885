@@ -45,6 +45,14 @@ extern void guard_bio_eod(int rw, struct bio *bio);
  */
 extern void __init chrdev_init(void);
 
+#ifdef CONFIG_PROC_DLOG
+/*
+ * dlog_hook.c
+ */
+void dlog_hook(struct dentry *, struct inode *, struct path *);
+void dlog_hook_rmdir(struct dentry *, struct path *);
+#endif
+
 /*
  * namei.c
  */
@@ -123,6 +131,7 @@ extern void inode_add_lru(struct inode *inode);
 extern void inode_io_list_del(struct inode *inode);
 
 extern long get_nr_dirty_inodes(void);
+extern void evict_inodes(struct super_block *);
 extern int invalidate_inodes(struct super_block *, bool);
 
 /*

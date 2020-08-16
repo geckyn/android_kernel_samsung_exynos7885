@@ -16,6 +16,7 @@
 #include "battery_data_a10_common.dtsi"
 #include "exynos7885-ecd.dtsi"
 #include "exynos7884B-a10_camera.dtsi"
+#include <dt-bindings/clock/exynos7885.h>
 #include "exynos7884B-a10_motor.dtsi"
 #include "exynos7884b-mali.dtsi"
 / {
@@ -30,7 +31,7 @@
 
 			fixed-rate-clocks {
 				oscclk {
-					compatible = "samsung,exynos7884B-oscclk";
+					compatible = "samsung,exynos7885-oscclk";
 					clock-frequency = <26000000>;
 				};
 			};
@@ -382,7 +383,7 @@
 						l35_reg: LDO35 {
 							regulator-name = "vmmc";
 							regulator-min-microvolt = <1800000>;
-							regulator-max-microvolt = <3000000>;
+							regulator-max-microvolt = <3375000>;
 							regulator-ramp-delay = <12000>;
 						};
 
@@ -808,34 +809,15 @@
 					103700 104000 104400 104500 105200 105300 105900 106000 106700 106800 107500 107600 >;
 				spur-trfon-freq = <1536>;
 			};
-
 			cpufreq {
-				domain@0 {
-					max-freq = <1352000>;
-
-					dm-constraints {
-						mif-perf {
-							table = < 1352000 1014000
-								  1248000 1014000
-								  1144000  845000
-								  1014000  845000
-								   902000  676000
-								   839000  676000
-								   757000  546000
-								   676000  546000
-								   546000  420000
-								   449000  420000
-								   343000  420000
-								   208000  420000>;
-						};
-					};
-				};
 				domain@1 {
-					max-freq = <1560000>;
+					max-freq = <1768000>;
 
 					dm-constraints {
 						mif-perf {
-							table = < 1560000 1794000
+							table = < 1768000 1794000
+								  1664000 1539000
+								  1560000 1539000
 								  1352000 1352000
 								  1144000 1014000
 								   936000  546000
@@ -871,7 +853,9 @@
 						ctrl-type = <PM_QOS_MIN_LIMIT>;
 						execution-mode = <AARCH64_MODE>;
 							/* big	    lit */
-						table = < 1560000  1352000
+						table = < 1768000  1586000
+							  1664000  839000
+							  1560000  839000
 							  1352000  839000
 							  1144000  839000
 							   936000  839000
@@ -882,8 +866,10 @@
 						ctrl-type = <PM_QOS_MAX_LIMIT>;
 						execution-mode = <AARCH64_MODE>;
 							/* big	    lit */
-						table = < 1560000 1352000
-							  1352000 1352000
+						table = < 1768000 1586000
+							  1664000 1586000
+							  1560000 1586000
+							  1352000 1586000
 							  1144000 1352000
 							   936000 1248000
 							   728000 1248000 >;
@@ -1516,6 +1502,3 @@ usi_mode = "hsi2c0" or "hsi2c1" or "spi" or "uart"
 	};
 };
 
-&devfreq_1 {
-	freq_info = <333000 107000 107000 107000 333000 333000>;
-};

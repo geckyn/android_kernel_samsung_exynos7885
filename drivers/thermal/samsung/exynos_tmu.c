@@ -2048,7 +2048,7 @@ static int exynos_tmu_remove(struct platform_device *pdev)
 
 	if (list_is_singular(&dtm_dev_list)) {
 		unregister_pm_notifier(&exynos_tmu_pm_notifier);
-		unregister_cpus_notifier(&data->nb);
+/*		unregister_cpus_notifier(&data->nb); */
 	}
 
 	thermal_zone_of_sensor_unregister(&pdev->dev, tzd);

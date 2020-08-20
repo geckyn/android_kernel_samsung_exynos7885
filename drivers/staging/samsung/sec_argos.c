@@ -366,31 +366,6 @@ int argos_irq_affinity_apply(int dev_num, bool enable)
 	return result;
 }
 
-int argos_hmpboost_apply(int dev_num, bool enable)
-{
-	bool *hmpboost_enable;
-
-	hmpboost_enable = &argos_pdata->devices[dev_num].hmpboost_enable;
-
-	if (enable) {
-		/* disable -> enable */
-		if (*hmpboost_enable == false) {
-			set_hmp_boost(true);
-			*hmpboost_enable = true;
-			pr_info("%s: hmp boost enable [%d]\n", __func__, dev_num);
-		}
-	} else {
-		/* enable -> disable */
-		if (*hmpboost_enable == true) {
-			set_hmp_boost(false);
-			*hmpboost_enable = false;
-			pr_info("%s: hmp boost disable [%d]\n", __func__, dev_num);
-		}
-	}
-
-	return 0;
-}
-
 static void argos_freq_unlock(int type)
 {
 	struct argos_pm_qos *qos = argos_pdata->devices[type].qos;
@@ -489,7 +464,6 @@ void argos_block_enable(char *req_name, bool set)
 		argos_freq_unlock(dev_num);
 		argos_task_affinity_apply(dev_num, 0);
 		argos_irq_affinity_apply(dev_num, 0);
-		argos_hmpboost_apply(dev_num, 0);
 		cnode->prev_level = -1;
 		mutex_unlock(&cnode->level_mutex);
 	} else {
@@ -579,7 +553,6 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 				argos_freq_unlock(type);
 				argos_task_affinity_apply(type, 0);
 				argos_irq_affinity_apply(type, 0);
-				argos_hmpboost_apply(type, 0);
 			} else {
 				unsigned enable_flag;
 
@@ -592,7 +565,6 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 				argos_irq_affinity_apply(type, enable_flag);
 
 				enable_flag = argos_pdata->devices[type].tables[level].items[HMP_BOOST_EN];
-				argos_hmpboost_apply(type, enable_flag);
 
 				if (cnode->argos_notifier.head) {
 					pr_debug("%s: Call argos notifier(%s lev:%d)\n", __func__, cnode->desc, level);

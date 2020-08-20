@@ -230,7 +230,8 @@ static int do_cpu_hotplug(bool fast_hotplug)
 	pr_debug("%s: disable_cpus=%s\n", __func__, cpus_buf);
 
 	/* select function of cpu hotplug */
-	if (fast_hotplug) {
+/*	if (fast_hotplug) { */
+	if (0) {
 		func_cpu_up = cpus_up;
 		func_cpu_down = cpus_down;
 	} else {

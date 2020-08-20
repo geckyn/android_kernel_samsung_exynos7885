@@ -297,6 +297,7 @@ static const struct attribute_group *cs_sysfs_groups[] = {
 #include <linux/notifier.h>
 #include <linux/cpu.h>
 
+/*
 static int pmu_cpus_notifier(struct notifier_block *nb,
 				unsigned long event, void *data)
 {
@@ -311,9 +312,9 @@ static int pmu_cpus_notifier(struct notifier_block *nb,
 		cpumask_andnot(&mask, &hmp_fast_cpu_mask, (struct cpumask *)data);
 #endif
 
-		/*
+		 *
 		 * Wait for core power down
-		 */
+		 *
 		timeout = jiffies + msecs_to_jiffies(2000);
 		while (time_before(jiffies, timeout)) {
 			for_each_cpu(cpu, &mask)
@@ -339,12 +340,13 @@ static int pmu_cpus_notifier(struct notifier_block *nb,
 	}
 
 	return ret;
-}
+} */
 
+/*
 static struct notifier_block exynos_pmu_cpus_nb = {
 	.notifier_call = pmu_cpus_notifier,
-	.priority = INT_MAX,				/* want to be called first */
-};
+	.priority = INT_MAX,				* want to be called first *
+}; */
 
 static int exynos_pmu_probe(struct platform_device *pdev)
 {
@@ -361,7 +363,7 @@ static int exynos_pmu_probe(struct platform_device *pdev)
 					cs_sysfs_groups))
 		pr_err("Fail to register exynos_info subsys\n");
 
-	register_cpus_notifier(&exynos_pmu_cpus_nb);
+/*	register_cpus_notifier(&exynos_pmu_cpus_nb); */
 
 	return 0;
 }

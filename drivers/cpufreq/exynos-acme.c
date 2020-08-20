@@ -1197,10 +1197,10 @@ static __init int early_init_domain(struct exynos_cpufreq_domain *domain,
 	if (ret)
 		return ret;
 
-	if (ap_fuse != 2)
+/*	if (ap_fuse != 2)
 		cpulist_parse(buf, &domain->cpus);
-	else
-		cpulist_parse("0-3", &domain->cpus);
+	else */
+		cpulist_parse(buf, &domain->cpus);
 
 	cpumask_and(&domain->cpus, &domain->cpus, cpu_possible_mask);
 	if (cpumask_weight(&domain->cpus) == 0)
@@ -1315,7 +1315,7 @@ static int __init exynos_cpufreq_init(void)
 	unsigned int domain_id = 0;
 
 	while ((dn = of_find_node_by_type(dn, "cpufreq-domain"))) {
-		 if (domain_id >= 1 && ap_fuse == 2)
+		 if (domain_id >= 1)
                        continue;
 
 		domain = alloc_domain(dn);

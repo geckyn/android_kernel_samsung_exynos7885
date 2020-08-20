@@ -561,6 +561,7 @@ static void update_boost_max_freq(struct exynos_cpufreq_domain *domain,
 		cpufreq_verify_within_limits(policy, 0, max_freq);
 }
 
+/*
 static int exynos_cpufreq_cpus_callback(struct notifier_block *nb,
 				    unsigned long event, void *data)
 {
@@ -576,16 +577,16 @@ static int exynos_cpufreq_cpus_callback(struct notifier_block *nb,
 		switch (event) {
 		case CPUS_DOWN_COMPLETE:
 		case CPUS_UP_PREPARE:
-			/*
+			*
 			 * The first incoming cpu of domain never call cpufreq_update_policy()
 			 * because policy is not available.
-			 */
+			 *
 			cpumask_and(&domain->online_cpus, cpu_online_mask, mask);
 			cpumask_and(&domain->online_cpus, &domain->online_cpus, &domain->cpus);
 			if (!cpumask_weight(&domain->online_cpus))
 				return NOTIFY_OK;
 
-			/* If it fail to update policy over 50ms, it cancels cpu up */
+			* If it fail to update policy over 50ms, it cancels cpu up *
 			timeout = jiffies + msecs_to_jiffies(50);
 			while (cpufreq_update_policy(cpumask_first(&domain->online_cpus))) {
 				if (event == CPUS_DOWN_COMPLETE)
@@ -615,7 +616,7 @@ static int exynos_cpufreq_cpus_callback(struct notifier_block *nb,
 static struct notifier_block exynos_cpufreq_cpus_notifier = {
 	.notifier_call = exynos_cpufreq_cpus_callback,
 	.priority = INT_MIN,
-};
+}; */
 
 /*********************************************************************
  *                       EXTERNAL EVENT HANDLER                      *
@@ -1354,7 +1355,7 @@ static int __init exynos_cpufreq_init(void)
 
 	register_hotcpu_notifier(&exynos_cpufreq_cpu_up_notifier);
 	register_hotcpu_notifier(&exynos_cpufreq_cpu_down_notifier);
-	register_cpus_notifier(&exynos_cpufreq_cpus_notifier);
+/*	register_cpus_notifier(&exynos_cpufreq_cpus_notifier); */
 
 	cpufreq_register_notifier(&exynos_cpufreq_policy_notifier,
 					CPUFREQ_POLICY_NOTIFIER);

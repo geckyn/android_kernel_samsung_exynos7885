@@ -925,33 +925,6 @@ static inline int abox_request_big_freq_dai(struct device *dev,
 }
 
 /**
- * Request hmp boost
- * @param[in]	dev		pointer to struct dev which invokes this API
- * @param[in]	data		pointer to abox_data structure
- * @param[in]	id		key which is used as unique handle
- * @param[in]	on		1 on boost, 0 on otherwise.
- * @return	error code if any
- */
-extern int abox_request_hmp_boost(struct device *dev, struct abox_data *data,
-		unsigned int id, unsigned int on);
-
-/**
- * Request hmp boost with DAI
- * @param[in]	dev		pointer to struct dev which invokes this API
- * @param[in]	data		pointer to abox_data structure
- * @param[in]	dai		DAI which is used as unique handle
- * @param[in]	on		1 on boost, 0 on otherwise.
- * @return	error code if any
- */
-static inline int abox_request_hmp_boost_dai(struct device *dev,
-		struct abox_data *data,
-		struct snd_soc_dai *dai, unsigned int on)
-{
-	return abox_request_hmp_boost(dev, data, ABOX_CPU_GEAR_DAI | dai->id,
-			on);
-}
-
-/**
  * Try to turn off ASRC when sampling rate auto control is enabled
  * @param[in]	dev		pointer to struct dev which invokes this API
  * @param[in]	data		pointer to abox_data structure

@@ -3949,69 +3949,6 @@ int abox_request_big_freq(struct device *dev, struct abox_data *data,
 	return 0;
 }
 
-static void abox_change_hmp_boost_work_func(struct work_struct *work)
-{
-	struct abox_data *data = container_of(work, struct abox_data,
-			change_hmp_boost_work);
-	struct device *dev = &data->pdev->dev;
-	size_t array_size = ARRAY_SIZE(data->hmp_requests);
-	struct abox_qos_request *request;
-	unsigned int on = 0;
-
-	dev_dbg(dev, "%s\n", __func__);
-
-	for (request = data->hmp_requests;
-			request - data->hmp_requests < array_size &&
-			request->id; request++) {
-		if (request->value)
-			on = request->value;
-
-		dev_dbg(dev, "id=%x, value=%u, on=%u\n", request->id,
-				request->value, on);
-	}
-
-	if (data->hmp_boost != on) {
-		dev_info(dev, "request hmp boost: %d\n", on);
-
-		data->hmp_boost = on;
-		set_hmp_boost(on);
-	}
-}
-
-int abox_request_hmp_boost(struct device *dev, struct abox_data *data,
-		unsigned int id, unsigned int on)
-{
-	size_t array_size = ARRAY_SIZE(data->hmp_requests);
-	struct abox_qos_request *request;
-
-	if (!id)
-		id = DEFAULT_HMP_BOOST_ID;
-
-	for (request = data->hmp_requests;
-			request - data->hmp_requests < array_size &&
-			request->id && request->id != id; request++) {
-	}
-
-	if ((request->id == id) && (request->value == on))
-		return 0;
-
-	dev_info(dev, "%s(%x, %u)\n", __func__, id, on);
-
-	request->value = on;
-	wmb(); /* value is read only when id is valid */
-	request->id = id;
-
-	if (request - data->hmp_requests >= ARRAY_SIZE(data->hmp_requests)) {
-		dev_err(dev, "%s: out of index. id=%x, on=%u\n",
-				__func__, id, on);
-		return -ENOMEM;
-	}
-
-	schedule_work(&data->change_hmp_boost_work);
-
-	return 0;
-}
-
 void abox_request_dram_on(struct platform_device *pdev_abox, void *id, bool on)
 {
 	struct device *dev = &pdev_abox->dev;
@@ -5724,8 +5661,6 @@ static int samsung_abox_probe(struct platform_device *pdev)
 	INIT_WORK(&data->change_mif_freq_work, abox_change_mif_freq_work_func);
 	INIT_WORK(&data->change_lit_freq_work, abox_change_lit_freq_work_func);
 	INIT_WORK(&data->change_big_freq_work, abox_change_big_freq_work_func);
-	INIT_WORK(&data->change_hmp_boost_work,
-			abox_change_hmp_boost_work_func);
 	INIT_WORK(&data->register_component_work,
 			abox_register_component_work_func);
 	INIT_WORK(&data->boot_done_work, abox_boot_done_work_func);

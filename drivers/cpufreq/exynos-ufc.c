@@ -42,8 +42,8 @@ static ssize_t show_cpufreq_table(struct kobject *kobj,
 	ssize_t count = 0;
 	int i, scale = 0;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	list_for_each_entry_reverse(domain, domains, list) {
 		for (i = 0; i < domain->table_size; i++) {
@@ -72,8 +72,8 @@ static ssize_t show_cpufreq_min_limit(struct kobject *kobj,
 	unsigned int pm_qos_min;
 	int scale = -1;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	list_for_each_entry_reverse(domain, domains, list) {
 		scale++;
@@ -159,8 +159,8 @@ static ssize_t store_cpufreq_min_limit(struct kobject *kobj,
 	if (sscanf(buf, "%8d", &input) < 1)
 		return -EINVAL;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	if (!domains) {
 		pr_err("failed to get domains!\n");
@@ -281,8 +281,8 @@ static ssize_t store_cpufreq_min_limit_wo_boost(struct kobject *kobj,
 	if (sscanf(buf, "%8d", &input) < 1)
 		return -EINVAL;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	if (!domains) {
 		pr_err("failed to get domains!\n");
@@ -384,8 +384,8 @@ static ssize_t show_cpufreq_max_limit(struct kobject *kobj,
 	unsigned int pm_qos_max;
 	int scale = -1;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	if (!domains) {
 		pr_err("failed to get domains!\n");
@@ -457,8 +457,8 @@ static void cpufreq_max_limit_update(int input_freq)
 	int ret = 0;
 	struct cpumask mask;
 
-	if (ap_fuse == 2)
-		scale++;
+/*	if (ap_fuse == 2)
+		scale++; */
 
 	list_for_each_entry_reverse(domain, domains, list) {
 		struct exynos_ufc *ufc, *r_ufc = NULL, *r_ufc_32 = NULL;

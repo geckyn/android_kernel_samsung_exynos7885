@@ -21,7 +21,6 @@
 #include <linux/module.h>
 #include <linux/suspend.h>
 #include <linux/tick.h>
-#include <linux/exynos-ss.h>
 #include <trace/events/power.h>
 
 #include "cpuidle.h"
@@ -35,7 +34,6 @@ LIST_HEAD(cpuidle_detected_devices);
 static int enabled_devices;
 static int off __read_mostly;
 static int initialized __read_mostly;
-static int priv_disable;
 
 int cpuidle_disabled(void)
 {
@@ -46,20 +44,10 @@ void disable_cpuidle(void)
 	off = 1;
 }
 
-void disable_priv_cpuidle(void)
-{
-	priv_disable = 1;
-}
-
-void enable_priv_cpuidle(void)
-{
-	priv_disable = 0;
-}
-
 bool cpuidle_not_available(struct cpuidle_driver *drv,
 			   struct cpuidle_device *dev)
 {
-	return priv_disable || off || !initialized || !drv || !dev || !dev->enabled;
+	return off || !initialized || !drv || !dev || !dev->enabled;
 }
 
 /**
@@ -205,10 +193,9 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	}
 
 	/* Take note of the planned idle state. */
-	sched_idle_set_state(target_state);
+	sched_idle_set_state(target_state, index);
 
 	trace_cpu_idle_rcuidle(index, dev->cpu);
-	exynos_ss_cpuidle(drv->states[index].desc, index, 0, ESS_FLAG_IN);
 	time_start = ktime_get();
 
 	stop_critical_timings();
@@ -216,12 +203,10 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	start_critical_timings();
 
 	time_end = ktime_get();
-	exynos_ss_cpuidle(drv->states[index].desc, entered_state,
-			(int)ktime_to_us(ktime_sub(time_end, time_start)), ESS_FLAG_OUT);
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, dev->cpu);
 
 	/* The cpu is no longer idle or about to enter idle. */
-	sched_idle_set_state(NULL);
+	sched_idle_set_state(NULL, -1);
 
 	if (broadcast) {
 		if (WARN_ON_ONCE(!irqs_disabled()))
@@ -676,5 +661,5 @@ static int __init cpuidle_init(void)
 	return 0;
 }
 
-module_param(off, int, 0644);
+module_param(off, int, 0444);
 core_initcall(cpuidle_init);

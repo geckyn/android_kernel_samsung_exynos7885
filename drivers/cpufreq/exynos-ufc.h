@@ -37,5 +37,3 @@ struct exynos_ufc_info {
 
 	struct exynos_ufc_freq *freq_table;
 };
-
-extern struct cpumask early_cpu_mask;

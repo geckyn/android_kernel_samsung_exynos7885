@@ -422,6 +422,7 @@ static ssize_t show_cpufreq_max_limit(struct kobject *kobj,
 }
 
 struct pm_qos_request cpu_online_max_qos_req;
+extern struct cpumask early_cpu_mask;
 static void enable_domain_cpus(struct exynos_cpufreq_domain *domain)
 {
 	struct cpumask mask;

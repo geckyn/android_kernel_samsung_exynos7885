@@ -809,6 +809,227 @@
 				spur-trfon-freq = <1536>;
 			};
 
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		auto_cpu_mapping {
+			enabled;
+		};
+
+		cpu-map {
+			cluster1 {
+				core0 {
+					cpu = <&cpu0>;
+				};
+				core1 {
+					cpu = <&cpu1>;
+				};
+				core2 {
+					cpu = <&cpu2>;
+				};
+				core3 {
+					cpu = <&cpu3>;
+				};
+				core4 {
+					cpu = <&cpu4>;
+				};
+				core5 {
+					cpu = <&cpu5>;
+				};
+			};
+			cluster0 {
+				core0 {
+					cpu = <&cpu6>;
+				};
+				core1 {
+					cpu = <&cpu7>;
+				};
+			};
+		};
+
+		cpu0:cpu@100 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x100>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&BOOTCL_CPU_SLEEP>;
+			#cooling-cells = <2>; /* min followed by max */
+			logical-id = <0>;
+		};
+
+		cpu1:cpu@101 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x101>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&BOOTCL_CPU_SLEEP>;
+			logical-id = <1>;
+		};
+
+		cpu2:cpu@102 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x102>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&BOOTCL_CPU_SLEEP>;
+			logical-id = <2>;
+		};
+
+		cpu3:cpu@103 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x103>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&BOOTCL_CPU_SLEEP>;
+			logical-id = <3>;
+		};
+
+		cpu4:cpu@200 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x200>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&NONBOOTCL_CPU_SLEEP>;
+			logical-id = <4>;
+			sched_skip = <1>;
+		};
+
+		cpu5:cpu@201 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a53", "arm,armv8";
+			reg = <0x0 0x201>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_1 &CLUSTER_COST_1>;
+			cpu-idle-states = <&NONBOOTCL_CPU_SLEEP>;
+			logical-id = <5>;
+			sched_skip = <1>;
+		};
+
+		cpu6: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73", "arm,armv8";
+			reg = <0x0 0x0>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cpu-idle-states = <&NONBOOTCL_CPU_SLEEP>;
+			#cooling-cells = <2>; /* min followed by max */
+			logical-id = <6>;
+		};
+
+		cpu7:cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a73", "arm,armv8";
+			reg = <0x0 0x1>;
+			enable-method = "psci";
+			sched-energy-costs = <&CPU_COST_0 &CLUSTER_COST_0>;
+			cpu-idle-states = <&NONBOOTCL_CPU_SLEEP>;
+			logical-id = <7>;
+		};
+
+		idle-states {
+			entry-method = "arm,psci";
+
+			BOOTCL_CPU_SLEEP: bootcl-cpu-sleep {
+				idle-state-name = "c2";
+				compatible = "exynos,idle-state";
+				arm,psci-suspend-param = <0x0010000>;
+				entry-latency-us = <35>;
+				exit-latency-us = <90>;
+				min-residency-us = <750>;
+				status = "okay";
+			};
+
+			NONBOOTCL_CPU_SLEEP: nobootcl-cpu-sleep {
+				idle-state-name = "c2";
+				compatible = "exynos,idle-state";
+				arm,psci-suspend-param = <0x0010000>;
+				entry-latency-us = <30>;
+				exit-latency-us = <75>;
+				min-residency-us = <3000>;
+				status = "okay";
+			};
+		};
+
+		energy-costs {
+			CPU_COST_0: core-core0{
+				busy-cost-data = <
+					212     215
+					341	341
+					521	866
+					683	1798
+					886	3970
+					1024	7533
+				>;
+				idle-cost-data = <
+					10
+					0
+					0
+				>;
+			};
+			CPU_COST_1: core-core1{
+				busy-cost-data = <
+					46	22
+					61	31
+					72	39
+					84	51
+					96	63
+					107	77
+					127	105
+					148	149
+					171	231
+					182	240
+					198	250
+				>;
+				idle-cost-data = <
+					1
+					0
+					0
+				>;
+			};
+			CLUSTER_COST_0: cluster-core0{
+				busy-cost-data = <
+					212     61
+					341     93
+					521     268
+					683     579
+					886     1302
+					1024	2490
+				>;
+				idle-cost-data = <
+					268
+					268
+					0
+				>;
+			};
+			CLUSTER_COST_1: cluster-core1{
+			busy-cost-data = <
+					46      1
+					61      3
+					72      4
+					84      7
+					96      9
+					107	12
+					127	18
+					148	26
+					171	43
+					182	53
+					198	58
+				>;
+				idle-cost-data = <
+					5
+					5
+					0
+				>;
+			};
+		};
+	};
+
 			cpufreq {
 				domain@0 {
 					max-freq = <1352000>;

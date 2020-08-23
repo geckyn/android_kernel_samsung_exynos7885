@@ -24,6 +24,7 @@
 
 #include <asm/cputype.h>
 #include <asm/topology.h>
+#include <asm/smp_plat.h>
 
 static DEFINE_PER_CPU(unsigned long, cpu_scale) = SCHED_CAPACITY_SCALE;
 
@@ -181,6 +182,8 @@ static int __init parse_cluster(struct device_node *cluster, int depth)
 	return 0;
 }
 
+static void update_siblings_masks(unsigned int cpuid);
+
 static int __init parse_dt_topology(void)
 {
 	struct device_node *cn, *map;
@@ -209,9 +212,12 @@ static int __init parse_dt_topology(void)
 	 * Check that all cores are in the topology; the SMP code will
 	 * only mark cores described in the DT as possible.
 	 */
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
 		if (cpu_topology[cpu].cluster_id == -1)
 			ret = -EINVAL;
+
+		update_siblings_masks(cpu);
+	}
 
 out_map:
 	of_node_put(map);
@@ -295,11 +301,17 @@ static void update_cpu_capacity(unsigned int cpu)
 static void update_siblings_masks(unsigned int cpuid)
 {
 	struct cpu_topology *cpu_topo, *cpuid_topo = &cpu_topology[cpuid];
+	unsigned int mpidr = cpu_logical_map(cpuid);
+	unsigned int cluster_id = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 	int cpu;
 
 	/* update core and thread sibling masks */
 	for_each_possible_cpu(cpu) {
 		cpu_topo = &cpu_topology[cpu];
+
+		mpidr = cpu_logical_map(cpu);
+		if (cluster_id == MPIDR_AFFINITY_LEVEL(mpidr, 1))
+			cpumask_set_cpu(cpuid, &cpu_topo->idle_sibling);
 
 		if (cpuid_topo->cluster_id != cpu_topo->cluster_id)
 			continue;
@@ -315,6 +327,47 @@ static void update_siblings_masks(unsigned int cpuid)
 		if (cpu != cpuid)
 			cpumask_set_cpu(cpu, &cpuid_topo->thread_sibling);
 	}
+}
+
+/*
+ * cluster_to_logical_mask - return cpu logical mask of CPUs in a cluster
+ * @socket_id:		cluster HW identifier
+ * @cluster_mask:	the cpumask location to be initialized, modified by the
+ *			function only if return value == 0
+ *
+ * Return:
+ *
+ * 0 on success
+ * -EINVAL if cluster_mask is NULL or there is no record matching socket_id
+ */
+int cluster_to_logical_mask(unsigned int socket_id, cpumask_t *cluster_mask)
+{
+	int cpu;
+
+	if (!cluster_mask)
+		return -EINVAL;
+
+	for_each_online_cpu(cpu) {
+		if (socket_id == topology_physical_package_id(cpu)) {
+			cpumask_copy(cluster_mask, topology_core_cpumask(cpu));
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+
+int get_current_cpunum(void)
+{
+       unsigned int mpidr;
+       int core_id;
+       int cluster_id;
+       int cpuid;
+       mpidr = read_cpuid_mpidr();
+       core_id = MPIDR_AFFINITY_LEVEL(mpidr, 0);
+       cluster_id = MPIDR_AFFINITY_LEVEL(mpidr, 1);
+       cpuid = cluster_id ? core_id : core_id + 4;
+       return cpuid;
 }
 
 void store_cpu_topology(unsigned int cpuid)
@@ -364,13 +417,15 @@ static void __init reset_cpu_topology(void)
 		struct cpu_topology *cpu_topo = &cpu_topology[cpu];
 
 		cpu_topo->thread_id = -1;
-		cpu_topo->core_id = 0;
+		cpu_topo->core_id = -1;
 		cpu_topo->cluster_id = -1;
 
 		cpumask_clear(&cpu_topo->core_sibling);
 		cpumask_set_cpu(cpu, &cpu_topo->core_sibling);
 		cpumask_clear(&cpu_topo->thread_sibling);
 		cpumask_set_cpu(cpu, &cpu_topo->thread_sibling);
+		cpumask_clear(&cpu_topo->idle_sibling);
+		cpumask_set_cpu(cpu, &cpu_topo->idle_sibling);
 	}
 }
 

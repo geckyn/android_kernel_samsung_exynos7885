@@ -28,6 +28,12 @@
 			#address-cells = <2>;
 			#size-cells = <1>;
 
+			chosen {
+				bootargs = "console=ram skip_initramfs rootwait ro init=/init clk_ignore_unused bcm_setup=0xffffff80f8e00000 androidboot.hardware=samsungexynos7885 androidboot.selinux=permissive ess_setup=0x86000000 ecd_setup=disable androidboot.debug_level=0x4948 firmware_class.path=/vendor/firmware reserve-fimc=0xffffff80fa000000 pmic_info=0x3 androidboot.cp_reserved_mem=ON ccic_info=0x1 epx_activate=true";
+				linux,initrd-start = <0x84000000>;
+				linux,initrd-end = <0x840FFFFF>;
+			};
+
 			fixed-rate-clocks {
 				oscclk {
 					compatible = "samsung,exynos7884B-oscclk";

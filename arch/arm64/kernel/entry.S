@@ -99,6 +99,20 @@ alternative_else_nop_endif
 	.if	\regsize == 32
 	mov	w0, w0				// zero upper 32 bits of x0
 	.endif
+
+#ifdef CONFIG_SOC_EXYNOS8895
+	.if     \regsize == 32
+	.if     \el == 0
+	msr     cntp_cval_el0, x0
+	mov     x0, sp
+	lsr     x0, x0, #12
+	tlbi    vaae1, x0
+	dsb     nsh
+	mrs     x0, cntp_cval_el0
+	.endif
+	.endif
+#endif
+
 	stp	x0, x1, [sp, #16 * 0]
 	stp	x2, x3, [sp, #16 * 1]
 	stp	x4, x5, [sp, #16 * 2]
@@ -131,14 +145,14 @@ alternative_else_nop_endif
 	.else
 	add	x21, sp, #S_FRAME_SIZE
 	get_thread_info tsk
-	/* Save the task's original addr_limit and set USER_DS (TASK_SIZE_64) */
+	/* Save the task's original addr_limit and set USER_DS */
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	ldr	x20, [tsk, #TSK_TI_ADDR_LIMIT]
 #else
 	ldr	x20, [tsk, #TI_ADDR_LIMIT]
 #endif
 	str	x20, [sp, #S_ORIG_ADDR_LIMIT]
-	mov	x20, #TASK_SIZE_64
+	mov	x20, #USER_DS
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	str	x20, [tsk, #TSK_TI_ADDR_LIMIT]
 #else
@@ -181,8 +195,8 @@ alternative_else_nop_endif
 	 * Set syscallno to -1 by default (overridden later if real syscall).
 	 */
 	.if	\el == 0
-	mvn	x21, xzr
-	str	x21, [sp, #S_SYSCALLNO]
+	mvn	w21, wzr
+	str	w21, [sp, #S_SYSCALLNO]
 	.endif
 
 	/*
@@ -257,14 +271,35 @@ alternative_else_nop_endif
 	b.eq	3f
 
 #ifdef CONFIG_ARM64_ERRATUM_845719
-alternative_if ARM64_WORKAROUND_845719
+alternative_if_not ARM64_WORKAROUND_845719
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+	nop
+#ifdef CONFIG_PID_IN_CONTEXTIDR
+	nop
+#endif
+alternative_else
+	tbz	x22, #4, 1f
+
+	/* skip ERRATUM non-CA53 core */
+	mrs	x29, midr_el1
+	lsr	x29, x29, #0x4			// part number shift
+	and	x29, x29, #0xfff		// part number mask
+	cmp	x29, #0xd03			// ARMV8_CORTEXA53
+	b.ne	1f
+
 #ifdef CONFIG_PID_IN_CONTEXTIDR
 	mrs	x29, contextidr_el1
 	msr	contextidr_el1, x29
 #else
 	msr contextidr_el1, xzr
 #endif
-alternative_else_nop_endif
+1:
+alternative_endif
 #endif
 3:
 	.endif
@@ -355,8 +390,10 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
  *
  * x7 is reserved for the system call number in 32-bit mode.
  */
-sc_nr	.req	x25		// number of system calls
-scno	.req	x26		// syscall number
+wsc_nr	.req	w25		// number of system calls
+xsc_nr	.req	x25		// number of system calls (zero-extended)
+wscno	.req	w26		// syscall number
+xscno	.req	x26		// syscall number (zero-extended)
 stbl	.req	x27		// syscall table pointer
 tsk	.req	x28		// current thread_info
 
@@ -494,6 +531,14 @@ el1_da:
 	 */
 	mrs	x3, far_el1
 	enable_dbg
+
+	/*
+	 * tlb conflict handling
+	*/
+	and	x24, x1, #ESR_EL1_ISS_DFSC_MASK
+	cmp	x24, #ESR_EL1_ISS_DFSC_TLB_CONFLICT
+	b.eq	el1_da_tlb_conflict
+
 	// re-enable interrupts if they were enabled in the aborted context
 	tbnz	x23, #7, 1f			// PSR_I_BIT
 	enable_irq
@@ -504,6 +549,10 @@ el1_da:
 
 	// disable interrupts before pulling preserved data off the stack
 	disable_irq
+	kernel_exit 1
+el1_da_tlb_conflict:
+	tlbi vmalle1
+	dsb nsh
 	kernel_exit 1
 el1_sp_pc:
 	/*
@@ -519,6 +568,7 @@ el1_undef:
 	 */
 	enable_dbg
 	mov	x0, sp
+	mrs	x1, esr_el1			// read the syndrome register
 	b	do_undefinstr
 el1_dbg:
 	/*
@@ -653,8 +703,8 @@ el0_svc_compat:
 	 * AArch32 syscall handling
 	 */
 	adrp	stbl, compat_sys_call_table	// load compat syscall table pointer
-	uxtw	scno, w7			// syscall number in w7 (r7)
-	mov     sc_nr, #__NR_compat_syscalls
+	mov	wscno, w7			// syscall number in w7 (r7)
+	mov     wsc_nr, #__NR_compat_syscalls
 	b	el0_svc_naked
 
 	.align	6
@@ -681,13 +731,15 @@ el0_ia:
 	 * Instruction abort handling
 	 */
 	mrs	x26, far_el1
-	// enable interrupts before calling the main handler
-	enable_dbg_and_irq
+	enable_dbg
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_off
+#endif
 	ct_user_exit
 	mov	x0, x26
 	mov	x1, x25
 	mov	x2, sp
-	bl	do_mem_abort
+	bl	do_el0_ia_bp_hardening
 	b	ret_to_user
 el0_fpsimd_acc:
 	/*
@@ -714,8 +766,10 @@ el0_sp_pc:
 	 * Stack or PC alignment exception handling
 	 */
 	mrs	x26, far_el1
-	// enable interrupts before calling the main handler
-	enable_dbg_and_irq
+	enable_dbg
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_off
+#endif
 	ct_user_exit
 	mov	x0, x26
 	mov	x1, x25
@@ -730,6 +784,7 @@ el0_undef:
 	enable_dbg_and_irq
 	ct_user_exit
 	mov	x0, sp
+	mrs	x1, esr_el1			// read the syndrome register
 	bl	do_undefinstr
 	b	ret_to_user
 el0_sys:
@@ -774,6 +829,11 @@ el0_irq_naked:
 #endif
 
 	ct_user_exit
+#ifdef CONFIG_HARDEN_BRANCH_PREDICTOR
+	tbz	x22, #55, 1f
+	bl	do_el0_irq_bp_hardening
+1:
+#endif
 	irq_handler
 
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -891,10 +951,10 @@ ENDPROC(ret_from_fork)
 	.align	6
 el0_svc:
 	adrp	stbl, sys_call_table		// load syscall table pointer
-	uxtw	scno, w8			// syscall number in w8
-	mov	sc_nr, #__NR_syscalls
+	mov	wscno, w8			// syscall number in w8
+	mov	wsc_nr, #__NR_syscalls
 el0_svc_naked:					// compat entry point
-	stp	x0, scno, [sp, #S_ORIG_X0]	// save the original x0 and syscall number
+	stp	x0, xscno, [sp, #S_ORIG_X0]	// save the original x0 and syscall number
 	enable_dbg_and_irq
 	ct_user_exit 1
 
@@ -905,9 +965,33 @@ el0_svc_naked:					// compat entry point
 #endif
 	tst	x16, #_TIF_SYSCALL_WORK
 	b.ne	__sys_trace
-	cmp     scno, sc_nr                     // check upper syscall limit
+	cmp     wscno, wsc_nr			// check upper syscall limit
 	b.hs	ni_sys
-	ldr	x16, [stbl, scno, lsl #3]	// address in the syscall table
+#ifdef CONFIG_SECURITY_DEFEX
+/*
+ * Defex enter hook
+ */
+
+	ldr	x16, =defex_syscall_catch_enter
+	ldr	x16, [x16]
+	cmp	x16, xzr
+	b.eq	2f
+	mov	x0, xscno
+	mov	x1, sp
+	blr	x16
+
+	cbnz	w0, ret_fast_syscall		// block this syscall?
+#	adr	lr, ret_fast_syscall		// return address (not needed here)
+
+	ldp	x0, x1, [sp]			// restore the syscall args
+	ldp	x2, x3, [sp, #S_X2]
+	ldp	x4, x5, [sp, #S_X4]
+	ldp	x6, x7, [sp, #S_X6]
+
+2:
+#endif
+	mask_nospec64 xscno, xsc_nr, x19    // enforce bounds for syscall number
+	ldr	x16, [stbl, xscno, lsl #3]  // address in the syscall table
 	blr	x16				// call sys_* routine
 	b	ret_fast_syscall
 ni_sys:
@@ -921,24 +1005,40 @@ ENDPROC(el0_svc)
 	 * switches, and waiting for our parent to respond.
 	 */
 __sys_trace:
-	mov	w0, #-1				// set default errno for
-	cmp     scno, x0			// user-issued syscall(-1)
+	cmp     wscno, #-1			// user-issued syscall(-1)?
 	b.ne	1f
-	mov	x0, #-ENOSYS
+	mov	x0, #-ENOSYS			// set default errno if so
 	str	x0, [sp, #S_X0]
 1:	mov	x0, sp
 	bl	syscall_trace_enter
 	cmp	w0, #-1				// skip the syscall?
 	b.eq	__sys_trace_return_skipped
-	uxtw	scno, w0			// syscall number (possibly new)
+	mov	wscno, w0			// syscall number (possibly new)
 	mov	x1, sp				// pointer to regs
-	cmp	scno, sc_nr			// check upper syscall limit
+	cmp	wscno, wsc_nr			// check upper syscall limit
 	b.hs	__ni_sys_trace
+#ifdef CONFIG_SECURITY_DEFEX
+/*
+ * Defex enter hook
+ */
+
+	ldr	x16, =defex_syscall_catch_enter
+	ldr	x16, [x16]
+	cmp	x16, xzr
+	b.eq	3f
+	mov	x0, xscno
+	mov	x1, sp
+	blr	x16
+
+	cbnz	w0, __sys_trace_return		// block this syscall?
+#	adr	lr, __sys_trace_return		// return address (not neede here)
+3:
+#endif
 	ldp	x0, x1, [sp]			// restore the syscall args
 	ldp	x2, x3, [sp, #S_X2]
 	ldp	x4, x5, [sp, #S_X4]
 	ldp	x6, x7, [sp, #S_X6]
-	ldr	x16, [stbl, scno, lsl #3]	// address in the syscall table
+	ldr	x16, [stbl, xscno, lsl #3]	// address in the syscall table
 	blr	x16				// call sys_* routine
 
 __sys_trace_return:
@@ -964,7 +1064,8 @@ __ni_sys_trace:
 	sub	\tmp, \tmp, #(SWAPPER_DIR_SIZE + RESERVED_TTBR0_SIZE)
 	bic	\tmp, \tmp, #USER_ASID_FLAG
 	msr	ttbr1_el1, \tmp
-#ifdef CONFIG_ARCH_MSM8996
+#ifdef CONFIG_QCOM_FALKOR_ERRATUM_1003
+alternative_if ARM64_WORKAROUND_QCOM_FALKOR_E1003
 	/* ASID already in \tmp[63:48] */
 	movk	\tmp, #:abs_g2_nc:(TRAMP_VALIAS >> 12)
 	movk	\tmp, #:abs_g1_nc:(TRAMP_VALIAS >> 12)
@@ -973,7 +1074,8 @@ __ni_sys_trace:
 	isb
 	tlbi	vae1, \tmp
 	dsb	nsh
-#endif /* CONFIG_ARCH_MSM8996 */
+alternative_else_nop_endif
+#endif /* CONFIG_QCOM_FALKOR_ERRATUM_1003 */
 	.endm
 
 	.macro tramp_unmap_kernel, tmp
@@ -1007,9 +1109,7 @@ __ni_sys_trace:
 	tramp_map_kernel	x30
 #ifdef CONFIG_RANDOMIZE_BASE
 	adr	x30, tramp_vectors + PAGE_SIZE
-#ifndef CONFIG_ARCH_MSM8996
-	isb
-#endif
+alternative_insn isb, nop, ARM64_WORKAROUND_QCOM_FALKOR_E1003
 	ldr	x30, [x30]
 #else
 	ldr	x30, =vectors

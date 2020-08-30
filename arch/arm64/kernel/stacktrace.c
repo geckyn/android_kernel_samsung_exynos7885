@@ -25,6 +25,10 @@
 #include <asm/stack_pointer.h>
 #include <asm/stacktrace.h>
 
+#ifdef CONFIG_SEC_DEBUG_INFINITY_BACKTRACE
+#include <linux/sec_debug.h>
+#endif
+
 /*
  * AArch64 PCS assigns the frame pointer to x29.
  *
@@ -43,6 +47,9 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	unsigned long high, low;
 	unsigned long fp = frame->fp;
 	unsigned long irq_stack_ptr;
+
+	if (!tsk)
+		tsk = current;
 
 	/*
 	 * Switching between stacks is valid when tracing current and in
@@ -67,8 +74,14 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
 	frame->fp = *(unsigned long *)(fp);
 	frame->pc = *(unsigned long *)(fp + 8);
 
+#ifdef CONFIG_SEC_DEBUG_LIMIT_BACKTRACE
+	if (fp == frame->fp && frame->sp != irq_stack_ptr) {
+		return -EINVAL;
+	}
+#endif
+
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
-	if (tsk && tsk->ret_stack &&
+	if (tsk->ret_stack &&
 			(frame->pc == (unsigned long)return_to_handler)) {
 		/*
 		 * This is a case where function graph tracer has

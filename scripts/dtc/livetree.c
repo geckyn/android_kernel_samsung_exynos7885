@@ -216,6 +216,28 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 	return old_node;
 }
 
+void add_orphan_node(struct node *dt, struct node *new_node, char *ref)
+{
+	static unsigned int next_orphan_fragment;
+	struct node *node;
+	struct property *p;
+	struct data d = empty_data;
+	char *name;
+
+	d = data_add_marker(d, REF_PHANDLE, ref);
+	d = data_append_integer(d, 0xffffffff, 32);
+
+	p = build_property("target", d);
+
+	xasprintf(&name, "fragment@%u",
+			next_orphan_fragment++);
+	name_node(new_node, "__overlay__");
+	node = build_node(p, new_node);
+	name_node(node, name);
+
+	add_child(dt, node);
+}
+
 struct node *chain_node(struct node *first, struct node *list)
 {
 	assert(first->next_sibling == NULL);
@@ -242,7 +264,7 @@ void delete_property_by_name(struct node *node, char *name)
 	struct property *prop = node->proplist;
 
 	while (prop) {
-		if (!strcmp(prop->name, name)) {
+		if (streq(prop->name, name)) {
 			delete_property(prop);
 			return;
 		}
@@ -275,7 +297,7 @@ void delete_node_by_name(struct node *parent, char *name)
 	struct node *node = parent->children;
 
 	while (node) {
-		if (!strcmp(node->name, name)) {
+		if (streq(node->name, name)) {
 			delete_node(node);
 			return;
 		}
@@ -847,6 +869,8 @@ static void add_fixup_entry(struct dt_info *dti, struct node *fn,
 	xasprintf(&entry, "%s:%s:%u",
 			node->fullpath, prop->name, m->offset);
 	append_to_property(fn, m->ref, entry, strlen(entry) + 1);
+
+	free(entry);
 }
 
 static void generate_fixups_tree_internal(struct dt_info *dti,

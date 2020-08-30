@@ -42,6 +42,7 @@ bool __list_del_entry_valid(struct list_head *entry)
 	prev = entry->prev;
 	next = entry->next;
 
+
 	if (CHECK_DATA_CORRUPTION(next == LIST_POISON1,
 			"list_del corruption, %p->next is LIST_POISON1 (%p)\n",
 			entry, LIST_POISON1) ||

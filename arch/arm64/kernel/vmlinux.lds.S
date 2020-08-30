@@ -80,8 +80,8 @@ PECOFF_FILE_ALIGNMENT = 0x200;
 #define ALIGN_DEBUG_RO			. = ALIGN(1<<PAGE_SHIFT);
 #define ALIGN_DEBUG_RO_MIN(min)		ALIGN_DEBUG_RO
 #else
-#define ALIGN_DEBUG_RO
-#define ALIGN_DEBUG_RO_MIN(min)		. = ALIGN(min);
+#define ALIGN_DEBUG_RO			. = ALIGN(1<<PAGE_SHIFT);
+#define ALIGN_DEBUG_RO_MIN(min)		ALIGN_DEBUG_RO
 #endif
 
 SECTIONS
@@ -128,6 +128,7 @@ SECTIONS
 	}
 
 	ALIGN_DEBUG_RO_MIN(PAGE_SIZE)
+
 	_etext = .;			/* End of text section */
 
 	RO_DATA(PAGE_SIZE)		/* everything from this point to     */
@@ -193,6 +194,7 @@ SECTIONS
 	BSS_SECTION(0, 0, 0)
 
 	. = ALIGN(PAGE_SIZE);
+#ifndef CONFIG_UH_RKP
 	idmap_pg_dir = .;
 	. += IDMAP_DIR_SIZE;
 	swapper_pg_dir = .;
@@ -207,7 +209,7 @@ SECTIONS
 	tramp_pg_dir = .;
 	. += PAGE_SIZE;
 #endif
-
+#endif
 	_end = .;
 
 	STABS_DEBUG

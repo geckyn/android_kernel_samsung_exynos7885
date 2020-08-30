@@ -962,7 +962,9 @@ void __init setup_arch(char **cmdline_p)
 	parse_early_param();
 
 #ifdef CONFIG_MMU
+	set_memsize_kernel_type(MEMSIZE_KERNEL_PAGING);
 	early_paging_init(mdesc);
+	set_memsize_kernel_type(MEMSIZE_KERNEL_OTHERS);
 #endif
 	setup_dma_zone(mdesc);
 	sanity_check_meminfo();

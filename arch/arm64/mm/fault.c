@@ -29,6 +29,8 @@
 #include <linux/sched.h>
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
+#include <soc/samsung/exynos-condbg.h>
+#include <linux/exynos-ss.h>
 #include <linux/preempt.h>
 
 #include <asm/bug.h>
@@ -41,7 +43,20 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#endif
+
+#ifdef CONFIG_SEC_MMIOTRACE
+#include <linux/sec_mmiotrace.h>
+#endif
+
+static int safe_fault_in_progress = 0;
 static const char *fault_name(unsigned int esr);
+
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+unsigned long long incorrect_addr = 0;
+#endif
 
 /*
  * Dump out the page tables associated with 'addr' in mm 'mm'.
@@ -133,6 +148,18 @@ int ptep_set_access_flags(struct vm_area_struct *vma,
 	return 1;
 }
 #endif
+static int __do_kernel_fault_safe(struct mm_struct *mm, unsigned long addr,
+		unsigned int esr, struct pt_regs *regs)
+{
+	safe_fault_in_progress = 0xFAFADEAD;
+
+	exynos_ss_panic_handler_safe();
+	exynos_ss_printkl(safe_fault_in_progress,safe_fault_in_progress);
+	while(1)
+		wfi();
+
+	return 0;
+}
 
 static bool is_el1_instruction_abort(unsigned int esr)
 {
@@ -151,14 +178,22 @@ static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 	 */
 	if (!is_el1_instruction_abort(esr) && fixup_exception(regs))
 		return;
+	if (safe_fault_in_progress) {
+		exynos_ss_printkl(safe_fault_in_progress, safe_fault_in_progress);
+		return;
+	}
 
 	/*
 	 * No handler, we'll have to terminate things with extreme prejudice.
 	 */
 	bust_spinlocks(1);
-	pr_alert("Unable to handle kernel %s at virtual address %08lx\n",
+	pr_auto(ASL1, "Unable to handle kernel %s at virtual address %08lx\n",
 		 (addr < PAGE_SIZE) ? "NULL pointer dereference" :
 		 "paging request", addr);
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	sec_debug_set_extra_info_fault(KERNEL_FAULT, addr, regs);
+#endif
 
 	show_pte(mm, addr);
 	die("Oops", regs, esr);
@@ -281,6 +316,11 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	tsk = current;
 	mm  = tsk->mm;
 
+#ifdef CONFIG_SEC_MMIOTRACE
+	if (mmiotrace_do_fault_handler(addr, esr, regs))
+		return 0;
+#endif
+
 	/* Enable interrupts if they were enabled in the parent context. */
 	if (interrupts_enabled(regs))
 		local_irq_enable();
@@ -302,7 +342,7 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 		mm_flags |= FAULT_FLAG_WRITE;
 	}
 
-	if (addr < USER_DS && is_permission_fault(esr, regs)) {
+	if (addr < TASK_SIZE && is_permission_fault(esr, regs)) {
 		/* regs->orig_addr_limit may be 0 if we entered from EL0 */
 		if (regs->orig_addr_limit == KERNEL_DS)
 			die("Accessing user space memory with fs=KERNEL_DS", regs, esr);
@@ -449,6 +489,10 @@ static int __kprobes do_translation_fault(unsigned long addr,
 					  unsigned int esr,
 					  struct pt_regs *regs)
 {
+	/* We may have invalid '*current' due to a stack overflow. */
+	if (!virt_addr_valid(current_thread_info()) || !virt_addr_valid(current))
+		__do_kernel_fault_safe(NULL, addr, esr, regs);
+
 	if (addr < TASK_SIZE)
 		return do_page_fault(addr, esr, regs);
 
@@ -461,7 +505,7 @@ static int __kprobes do_translation_fault(unsigned long addr,
  */
 static int do_bad(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 {
-	return 1;
+	return ecd_do_bad(addr, regs);
 }
 
 static const struct fault_info {
@@ -554,15 +598,55 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	if (!inf->fn(addr, esr, regs))
 		return;
 
-	pr_alert("Unhandled fault: %s (0x%08x) at 0x%016lx\n",
-		 inf->name, esr, addr);
+	if ((unhandled_signal(current, inf->sig) && show_unhandled_signals_ratelimited()) || !user_mode(regs))
+		pr_auto(ASL1, "Unhandled fault: %s (0x%08x) at 0x%016lx\n",
+			inf->name, esr, addr);
+
+#ifdef CONFIG_SEC_DEBUG_AVOID_UNNECESSARY_TRAP
+	if (!user_mode(regs)) {
+		/* In case of synchronous external abort */
+		if (inf == fault_info + 16) {
+			incorrect_addr = (unsigned long long)addr;
+		}
+	}
+#endif
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		sec_debug_set_extra_info_fault(MEM_ABORT_FAULT, addr, regs);
+		sec_debug_set_extra_info_esr(esr);
+	}
+#endif
 
 	info.si_signo = inf->sig;
 	info.si_errno = 0;
 	info.si_code  = inf->code;
 	info.si_addr  = (void __user *)addr;
-	arm64_notify_die("", regs, &info, esr);
+	arm64_notify_die("Oops - Data abort", regs, &info, esr);
 }
+
+asmlinkage void __exception do_el0_irq_bp_hardening(void)
+{
+	/* PC has already been checked in entry.S */
+	arm64_apply_bp_hardening();
+}
+
+asmlinkage void __exception do_el0_ia_bp_hardening(unsigned long addr,
+						   unsigned int esr,
+						   struct pt_regs *regs)
+{
+	/*
+	 * We've taken an instruction abort from userspace and not yet
+	 * re-enabled IRQs. If the address is a kernel address, apply
+	 * BP hardening prior to enabling IRQs and pre-emption.
+	 */
+	if (addr > TASK_SIZE)
+		arm64_apply_bp_hardening();
+
+	local_irq_enable();
+	do_mem_abort(addr, esr, regs);
+}
+
 
 /*
  * Handle stack alignment exceptions.
@@ -574,11 +658,24 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 	struct siginfo info;
 	struct task_struct *tsk = current;
 
+	if (user_mode(regs)) {
+		if (instruction_pointer(regs) > TASK_SIZE)
+			arm64_apply_bp_hardening();
+		local_irq_enable();
+	}
+
 	if (show_unhandled_signals && unhandled_signal(tsk, SIGBUS))
 		pr_info_ratelimited("%s[%d]: %s exception: pc=%p sp=%p\n",
-				    tsk->comm, task_pid_nr(tsk),
-				    esr_get_class_string(esr), (void *)regs->pc,
-				    (void *)regs->sp);
+					    tsk->comm, task_pid_nr(tsk),
+					    esr_get_class_string(esr), (void *)regs->pc,
+					    (void *)regs->sp);
+
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	if (!user_mode(regs)) {
+		sec_debug_set_extra_info_fault(SP_PC_ABORT_FAULT, addr, regs);
+		sec_debug_set_extra_info_esr(esr);
+	}
+#endif
 
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
@@ -625,17 +722,22 @@ asmlinkage int __exception do_debug_exception(unsigned long addr,
 	const struct fault_info *inf = debug_fault_info + DBG_ESR_EVT(esr);
 	struct siginfo info;
 
+	if (user_mode(regs) && instruction_pointer(regs) > TASK_SIZE)
+		arm64_apply_bp_hardening();
+
 	if (!inf->fn(addr, esr, regs))
 		return 1;
 
-	pr_alert("Unhandled debug exception: %s (0x%08x) at 0x%016lx\n",
-		 inf->name, esr, addr);
+	if (unhandled_signal(current, inf->sig)
+	    && show_unhandled_signals_ratelimited())
+		pr_alert("Unhandled debug exception: %s (0x%08x) at 0x%016lx\n",
+			 inf->name, esr, addr);
 
 	info.si_signo = inf->sig;
 	info.si_errno = 0;
 	info.si_code  = inf->code;
 	info.si_addr  = (void __user *)addr;
-	arm64_notify_die("", regs, &info, 0);
+	arm64_notify_die("Oops - Debug exception", regs, &info, 0);
 
 	return 0;
 }

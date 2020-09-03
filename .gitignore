@@ -117,3 +117,7 @@ all.config
 # fetched Android config fragments
 android/configs/android-*.cfg
 build_kernel_a10.sh
+proton-clang.sh
+
+# output
+/out

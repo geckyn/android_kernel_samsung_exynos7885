@@ -816,6 +816,9 @@
 				spur-trfon-freq = <1536>;
 			};
 			cpufreq {
+                                domain@0 {
+                                        min-freq = <902000>;
+				};
 				domain@1 {
 					max-freq = <1768000>;
 
